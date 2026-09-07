@@ -27,8 +27,8 @@
 #include <math.h>
 #include "sine_table.h"
 
+#include "stm32f4xx_hal.h"
 #include "usbd_cdc_if.h"
-#include "usbd_cdc.h"
 
 /* USER CODE END Includes */
 
@@ -40,39 +40,6 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
-uint8_t CDC_Transmit_FS(uint8_t* Buf, uint16_t Len);
-
-// Bring in the USB handle so we can check its exact hardware state
-extern USBD_HandleTypeDef hUsbDeviceFS;
-
-int _write(int file, char *ptr, int len) {
-    // A permanent, safe memory location for our text
-    static uint8_t usb_tx_buffer[256];
-
-    // Prevent buffer overflow
-    if (len > 256) len = 256;
-
-    // 1. Wait for the PREVIOUS USB transfer to completely finish
-    USBD_CDC_HandleTypeDef *hcdc = (USBD_CDC_HandleTypeDef*)hUsbDeviceFS.pClassData;
-    if (hcdc != NULL) {
-        // TxState == 0 means "Idle", anything else means "Busy"
-        while (hcdc->TxState != 0) {
-            // Wait here. Do not overwrite the buffer yet!
-        }
-    }
-
-    // 2. Now that the USB is idle, it is safe to overwrite our buffer
-    for(int i = 0; i < len; i++) {
-        usb_tx_buffer[i] = ptr[i];
-    }
-
-    // 3. Start the NEW background transfer
-    CDC_Transmit_FS(usb_tx_buffer, len);
-
-    return len;
-}
-
-//little changes
 
 
 #define PI 3.141592653589793
@@ -103,8 +70,6 @@ DMA_HandleTypeDef hdma_spi2_tx;
 TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim9;
 DMA_HandleTypeDef hdma_tim3_ch3;
-
-UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
 
@@ -148,7 +113,6 @@ static void MX_I2S2_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_TIM9_Init(void);
-static void MX_USART2_UART_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -157,7 +121,15 @@ static void MX_USART2_UART_Init(void);
 /* USER CODE BEGIN 0 */
 
 
+int _write(int file, char *ptr, int len) {
+    // Send data over USB CDC
+    CDC_Transmit_FS((uint8_t*)ptr, len);
 
+    // Optional: Add a brief delay to prevent buffer overflow on rapid prints
+    HAL_Delay(1);
+
+    return len;
+}
 
 
 //updates the step size of phase. turns frequency input into step size.
@@ -339,7 +311,6 @@ int main(void)
   MX_TIM3_Init();
   MX_ADC1_Init();
   MX_TIM9_Init();
-  MX_USART2_UART_Init();
   MX_USB_DEVICE_Init();
   /* USER CODE BEGIN 2 */
 
@@ -370,10 +341,12 @@ int main(void)
 
 
 	  //update_frequency();
-	  update_phase_change();
+	  //update_phase_change();
 
-	  printf("%ld \r\n", ADC_buffer[0]);
-	  printf("HELLO");
+	  printf("%ld \r\n", ADC_buffer[0]>>4);
+	  //printf("HELLO\r\n");
+	  //uint8_t MSG[35] = "HELLO";
+	  //HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
 	  HAL_Delay(1000);
 
     /* USER CODE END WHILE */
@@ -452,7 +425,7 @@ static void MX_ADC1_Init(void)
   hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV4;
   hadc1.Init.Resolution = ADC_RESOLUTION_12B;
   hadc1.Init.ScanConvMode = ENABLE;
-  hadc1.Init.ContinuousConvMode = ENABLE;
+  hadc1.Init.ContinuousConvMode = DISABLE;
   hadc1.Init.DiscontinuousConvMode = DISABLE;
   hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
   hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
@@ -469,7 +442,7 @@ static void MX_ADC1_Init(void)
   */
   sConfig.Channel = ADC_CHANNEL_5;
   sConfig.Rank = 1;
-  sConfig.SamplingTime = ADC_SAMPLETIME_3CYCLES;
+  sConfig.SamplingTime = ADC_SAMPLETIME_15CYCLES;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
     Error_Handler();
@@ -617,39 +590,6 @@ static void MX_TIM9_Init(void)
   /* USER CODE BEGIN TIM9_Init 2 */
 
   /* USER CODE END TIM9_Init 2 */
-
-}
-
-/**
-  * @brief USART2 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_USART2_UART_Init(void)
-{
-
-  /* USER CODE BEGIN USART2_Init 0 */
-
-  /* USER CODE END USART2_Init 0 */
-
-  /* USER CODE BEGIN USART2_Init 1 */
-
-  /* USER CODE END USART2_Init 1 */
-  huart2.Instance = USART2;
-  huart2.Init.BaudRate = 115200;
-  huart2.Init.WordLength = UART_WORDLENGTH_8B;
-  huart2.Init.StopBits = UART_STOPBITS_1;
-  huart2.Init.Parity = UART_PARITY_NONE;
-  huart2.Init.Mode = UART_MODE_TX_RX;
-  huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_UART_Init(&huart2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN USART2_Init 2 */
-
-  /* USER CODE END USART2_Init 2 */
 
 }
 
