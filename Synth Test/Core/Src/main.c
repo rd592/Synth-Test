@@ -52,6 +52,8 @@
 #define DMA_BUFFER_SAMPLES 256
 #define DMA_BUFFER_SIZE 2 * DMA_BUFFER_SAMPLES //2* accounts for double buffering
 
+#define ADC_SIZE 2
+
 #define A4 440
 /* USER CODE END PD */
 
@@ -67,8 +69,8 @@ DMA_HandleTypeDef hdma_adc1;
 I2S_HandleTypeDef hi2s2;
 DMA_HandleTypeDef hdma_spi2_tx;
 
+TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
-TIM_HandleTypeDef htim9;
 DMA_HandleTypeDef hdma_tim3_ch3;
 
 /* USER CODE BEGIN PV */
@@ -100,8 +102,11 @@ uint16_t wavetable_index = 0; //sine table index
 
 
 //potentiometer = [0], piezo = [1]
-volatile uint32_t ADC_buffer[2]; //ADC DMA readings go into this buffer.
+volatile uint16_t ADC_buffer[ADC_SIZE] = {0}; //ADC DMA readings go into this buffer.
+volatile uint8_t ADC_id = 0;
 
+uint32_t ADC_channels[ADC_SIZE] = {ADC_CHANNEL_5, ADC_CHANNEL_6};
+ADC_ChannelConfTypeDef ADC_CH_Cfg = {0};
 
 /* USER CODE END PV */
 
@@ -112,7 +117,7 @@ static void MX_DMA_Init(void);
 static void MX_I2S2_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_ADC1_Init(void);
-static void MX_TIM9_Init(void);
+static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -276,6 +281,11 @@ void HAL_TIM_PWM_PulseFinishedHalfCpltCallback(TIM_HandleTypeDef *htim3) {
 }
 
 
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
+{
+}
+
+
 /* USER CODE END 0 */
 
 /**
@@ -310,8 +320,8 @@ int main(void)
   MX_I2S2_Init();
   MX_TIM3_Init();
   MX_ADC1_Init();
-  MX_TIM9_Init();
   MX_USB_DEVICE_Init();
+  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
 
 
@@ -321,8 +331,12 @@ int main(void)
   //HAL_I2S_Transmit_DMA(&hi2s2, (uint16_t*) &i2s_buffer,DMA_BUFFER_SAMPLES*2);
   HAL_TIM_PWM_Start_DMA(&htim3, TIM_CHANNEL_3, (uint32_t*) pwm_buffer, DMA_BUFFER_SIZE);
 
-  //ADC DMA in continuous conversion mode, auto reads all analogue inputs
-  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)ADC_buffer, sizeof(ADC_buffer));
+  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)ADC_buffer, ADC_SIZE);
+  HAL_TIM_Base_Start(&htim2); // Start Timer2 (Trigger Source For ADC1)
+  //HAL_ADC_Start_IT(&hadc1); // Start ADC Conversion
+
+  //ADC DMA auto reads all analogue inputs
+  //HAL_ADC_Start_DMA(&hadc1, (uint32_t*)ADC_buffer, 2);
 
   /* USER CODE END 2 */
 
@@ -343,11 +357,16 @@ int main(void)
 	  //update_frequency();
 	  //update_phase_change();
 
-	  printf("%ld \r\n", ADC_buffer[0]>>4);
+
+	  //HAL_ADC_Start_DMA(&hadc1, (uint32_t*)ADC_buffer, sizeof(ADC_buffer));
+
+	  printf("%u \r\n", ADC_buffer[0]);
+	  printf("%u \r\n\n", ADC_buffer[1]);
+	  printf("\r\n");
 	  //printf("HELLO\r\n");
 	  //uint8_t MSG[35] = "HELLO";
 	  //HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
-	  HAL_Delay(1000);
+	  HAL_Delay(100);
 
     /* USER CODE END WHILE */
 
@@ -427,8 +446,8 @@ static void MX_ADC1_Init(void)
   hadc1.Init.ScanConvMode = ENABLE;
   hadc1.Init.ContinuousConvMode = DISABLE;
   hadc1.Init.DiscontinuousConvMode = DISABLE;
-  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
-  hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
+  hadc1.Init.ExternalTrigConv = ADC_EXTERNALTRIGCONV_T2_TRGO;
   hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
   hadc1.Init.NbrOfConversion = 2;
   hadc1.Init.DMAContinuousRequests = ENABLE;
@@ -497,6 +516,51 @@ static void MX_I2S2_Init(void)
 }
 
 /**
+  * @brief TIM2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM2_Init(void)
+{
+
+  /* USER CODE BEGIN TIM2_Init 0 */
+
+  /* USER CODE END TIM2_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM2_Init 1 */
+
+  /* USER CODE END TIM2_Init 1 */
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 119;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 59999;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM2_Init 2 */
+
+  /* USER CODE END TIM2_Init 2 */
+
+}
+
+/**
   * @brief TIM3 Initialization Function
   * @param None
   * @retval None
@@ -518,9 +582,9 @@ static void MX_TIM3_Init(void)
   htim3.Instance = TIM3;
   htim3.Init.Prescaler = 0;
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 2047;
+  htim3.Init.Period = 1999;
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
   if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
   {
     Error_Handler();
@@ -552,44 +616,6 @@ static void MX_TIM3_Init(void)
 
   /* USER CODE END TIM3_Init 2 */
   HAL_TIM_MspPostInit(&htim3);
-
-}
-
-/**
-  * @brief TIM9 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_TIM9_Init(void)
-{
-
-  /* USER CODE BEGIN TIM9_Init 0 */
-
-  /* USER CODE END TIM9_Init 0 */
-
-  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
-
-  /* USER CODE BEGIN TIM9_Init 1 */
-
-  /* USER CODE END TIM9_Init 1 */
-  htim9.Instance = TIM9;
-  htim9.Init.Prescaler = 0;
-  htim9.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim9.Init.Period = 65535;
-  htim9.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim9.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_Base_Init(&htim9) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim9, &sClockSourceConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN TIM9_Init 2 */
-
-  /* USER CODE END TIM9_Init 2 */
 
 }
 
