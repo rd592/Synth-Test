@@ -115,8 +115,20 @@ volatile uint8_t pot_id = 0;
 volatile uint16_t piezo_buffer[5] = {0}; //stores piezo values for averaging
 volatile uint8_t piezo_id = 0;
 
+const uint8_t* wavetable_buffer[4] = {sin2048, tri2048, square2048, saw2048}; //allows for swapping between wave tables
+uint8_t wavetable_id = 0;
+
 uint32_t ADC_channels[ADC_SIZE] = {ADC_CHANNEL_5, ADC_CHANNEL_6};
 ADC_ChannelConfTypeDef ADC_CH_Cfg = {0};
+
+
+
+//used for button debouncing
+uint32_t SysTicks = 0;
+uint32_t T1 = 0, T2 = 0;
+uint16_t Btn1_States = 0;
+uint8_t TimeInterval = 3;
+
 
 /* USER CODE END PV */
 
@@ -186,6 +198,7 @@ void update_frequency(){
 
 }
 
+//called to update frequency, phase change, and volume of generated output
 void audio_update(){
 	update_frequency();
 	update_phase_change();
@@ -223,7 +236,9 @@ void process_buffer_pwm(uint16_t *pwm_buffer){
 		//wavetable_index = (uint16_t)(sizeof(square2048)-1)*((float)phase/(float)TAU); //phase/tau returns value between 0 and 1
 		wavetable_index = (uint16_t)(2047)*((float)phase/(float)TAU); //phase/tau returns value between 0 and 1
 
-		float cur_sine = (float)tri2048[wavetable_index]/255; //sine as a float value 0 to 1. sine_table stored as uint8_t instead of float as cheaper to store
+		const uint8_t* cur_wavetable = wavetable_buffer[wavetable_id]; //changes between wavetables
+
+		float cur_sine = (float)cur_wavetable[wavetable_index]/255; //sine as a float value 0 to 1. sine_table stored as uint8_t instead of float as cheaper to store
 
 		//pwm duty cycle is from 1-2048. pwm_buffer values go to the CRR of the timer, which must be <= the ARR, which in this case is 2048.
 
@@ -316,7 +331,7 @@ void HAL_TIM_PWM_PulseFinishedHalfCpltCallback(TIM_HandleTypeDef *htim3) {
 	}
 }
 
-
+//triggers after every single channel ADC reading
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 {
 
@@ -332,6 +347,20 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 	if(piezo_id>=5){
 		piezo_id=0;
 	}
+}
+
+//This callback is used for button press debouncing currently
+void SysTick_CallBack(void)
+{
+    SysTicks++;
+}
+
+//button debounce function
+uint8_t BtnDebounce(void)
+{
+  static uint16_t Btn1_States = 0;
+  Btn1_States = (Btn1_States<<1) | (!HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_4));
+  return (Btn1_States == 0xFFF0);
 }
 
 
@@ -394,12 +423,20 @@ int main(void)
   while (1)
   {
 
-	  /* Example: Update duty cycle dynamically */
-	      //for (int duty = 0; duty <= 2047; duty += 10)
-	      //{
-	        //__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, duty);  // TIM1->CCR1 = duty;
+	  T2 = SysTicks;
+	  if( (T2-T1) >= TimeInterval ){
+		  if(BtnDebounce())
+		  {
+			  //HAL_GPIO_TogglePin(LED1_GPIO, LED1_Pin); // Toggle The Output LED Pin
+			  wavetable_id++;
+			  if(wavetable_id >=4){
+				  wavetable_id = 0;
+			  }
+		  }
+		  T1 = SysTicks;
+	  }
 
-	      //}
+
 
 
 	  audio_update();
@@ -411,7 +448,8 @@ int main(void)
 	  //printf("ADC_BUFFER: %u\r\n", ADC_buffer[0]);
 	  //printf("%ld\r\n", frequency);
 
-	  HAL_Delay(10);
+	  printf("WAVETABLE_ID %u \r\n", wavetable_id);
+	  HAL_Delay(1);
 
     /* USER CODE END WHILE */
 
@@ -709,11 +747,17 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(lrclk_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : osc_Pin vol_Pin */
-  GPIO_InitStruct.Pin = osc_Pin|vol_Pin;
+  /*Configure GPIO pin : PB4 */
+  GPIO_InitStruct.Pin = GPIO_PIN_4;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : vol_Pin */
+  GPIO_InitStruct.Pin = vol_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
-  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+  HAL_GPIO_Init(vol_GPIO_Port, &GPIO_InitStruct);
 
 /* USER CODE BEGIN MX_GPIO_Init_2 */
 /* USER CODE END MX_GPIO_Init_2 */

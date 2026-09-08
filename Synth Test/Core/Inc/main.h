@@ -32,6 +32,8 @@ extern "C" {
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
+void SysTick_CallBack(void);
+
 /* USER CODE END Includes */
 
 /* Exported types ------------------------------------------------------------*/
@@ -61,8 +63,6 @@ void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
 #define lrclk_Pin GPIO_PIN_15
 #define lrclk_GPIO_Port GPIOA
-#define osc_Pin GPIO_PIN_4
-#define osc_GPIO_Port GPIOB
 #define vol_Pin GPIO_PIN_8
 #define vol_GPIO_Port GPIOB
 
