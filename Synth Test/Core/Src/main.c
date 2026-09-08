@@ -328,15 +328,14 @@ int main(void)
   process_buffer_pwm(&pwm_buffer[0]);                    // Fill first half
   process_buffer_pwm(&pwm_buffer[DMA_BUFFER_SIZE / 2]);  // Fill second half
 
+
   //HAL_I2S_Transmit_DMA(&hi2s2, (uint16_t*) &i2s_buffer,DMA_BUFFER_SAMPLES*2);
   HAL_TIM_PWM_Start_DMA(&htim3, TIM_CHANNEL_3, (uint32_t*) pwm_buffer, DMA_BUFFER_SIZE);
+  HAL_TIM_Base_Start(&htim3); // Start Timer3 (Trigger Source For ADC1)
 
   HAL_ADC_Start_DMA(&hadc1, (uint32_t*)ADC_buffer, ADC_SIZE);
   HAL_TIM_Base_Start(&htim2); // Start Timer2 (Trigger Source For ADC1)
-  //HAL_ADC_Start_IT(&hadc1); // Start ADC Conversion
 
-  //ADC DMA auto reads all analogue inputs
-  //HAL_ADC_Start_DMA(&hadc1, (uint32_t*)ADC_buffer, 2);
 
   /* USER CODE END 2 */
 
@@ -355,17 +354,13 @@ int main(void)
 
 
 	  //update_frequency();
-	  //update_phase_change();
+	  update_phase_change();
 
-
-	  //HAL_ADC_Start_DMA(&hadc1, (uint32_t*)ADC_buffer, sizeof(ADC_buffer));
 
 	  printf("%u \r\n", ADC_buffer[0]);
 	  printf("%u \r\n\n", ADC_buffer[1]);
 	  printf("\r\n");
-	  //printf("HELLO\r\n");
-	  //uint8_t MSG[35] = "HELLO";
-	  //HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
+
 	  HAL_Delay(100);
 
     /* USER CODE END WHILE */
