@@ -25,7 +25,11 @@
 
 #include <stdio.h>
 #include <math.h>
+
 #include "sine_table.h"
+#include "saw_table.h"
+#include "square_table.h"
+#include "triangle_table.h"
 
 #include "stm32f4xx_hal.h"
 #include "usbd_cdc_if.h"
@@ -86,7 +90,7 @@ uint8_t dma_buffer_processing = 0;
 uint32_t dma_overflow = 0;
 
 volatile float frequency = 220;
-float frequency_range = 2; //double and half frequency
+float frequency_range = 0.5; //frequency range is between the double and the half of the base frequency (A4)
 float phase = 0;
 float phase_change = 0;
 
@@ -95,7 +99,7 @@ float angle = 0;
 
 
 //master volume
-float volume = 1;
+volatile float volume = 1;
 
 
 uint16_t wavetable_index = 0; //sine table index
@@ -104,6 +108,12 @@ uint16_t wavetable_index = 0; //sine table index
 //potentiometer = [0], piezo = [1]
 volatile uint16_t ADC_buffer[ADC_SIZE] = {0}; //ADC DMA readings go into this buffer.
 volatile uint8_t ADC_id = 0;
+
+volatile uint16_t pot_buffer[5] = {0}; //stores pot values for averaging
+volatile uint8_t pot_id = 0;
+
+volatile uint16_t piezo_buffer[5] = {0}; //stores piezo values for averaging
+volatile uint8_t piezo_id = 0;
 
 uint32_t ADC_channels[ADC_SIZE] = {ADC_CHANNEL_5, ADC_CHANNEL_6};
 ADC_ChannelConfTypeDef ADC_CH_Cfg = {0};
@@ -137,24 +147,49 @@ int _write(int file, char *ptr, int len) {
 }
 
 
+//used for simple mean average of adc buffers
+uint16_t adc_average(uint16_t* buffer, uint8_t buffer_size){
+
+	float total = 0;
+	for(int i = 0; i<buffer_size; i++){
+		total += (float)buffer[i];
+	}
+	total = total/buffer_size;
+	return total;
+}
+
+
 //updates the step size of phase. turns frequency input into step size.
 void update_phase_change(){
 	float x = (frequency/(float)SAMPLE_FREQ);
 	phase_change = ( x*TAU);
 }
 
+//change volume based on piezo input
+void update_volume(){
+	float volAvg = (float)adc_average((uint16_t*)piezo_buffer, 5);
+	volume = volAvg/4096.0;
+}
 
-//this doesnt work and is shit, make it good monkey
+
+//calculates new frequency value based on the pot value
 void update_frequency(){
 
-	float pot = ((ADC_buffer[0]>>20))/4096; //float between 0 and 1, >>4 as converting from 32 bit to 12 bit, which is the true ADC size
-	pot = pot*2 -1;// -1 to 1
+	//average 5 pot values
+	float potAvg = adc_average((uint16_t*)pot_buffer, 5)/4096.0; //between 0 and 1
 
-	float x = pot*frequency_range;
 
-	frequency = ((float)A4)*x;
+	//this value outputs a value between the frequency range and the reciprocal of the frequency range. allows for doubling and halving of frequency range
+	float range = potAvg*frequency_range - (potAvg -1)*(1/frequency_range);
 
+	frequency = (float)A4*range;
+
+}
+
+void audio_update(){
+	update_frequency();
 	update_phase_change();
+	update_volume();
 }
 
 
@@ -185,9 +220,10 @@ void process_buffer_pwm(uint16_t *pwm_buffer){
 	//iterate through half the buffer
 	for(int i = 0; i <DMA_BUFFER_SIZE/2; i++){
 
-		wavetable_index = (uint16_t)(sizeof(sin2048)-1)*((float)phase/(float)TAU); //phase/tau returns value between 0 and 1
+		//wavetable_index = (uint16_t)(sizeof(square2048)-1)*((float)phase/(float)TAU); //phase/tau returns value between 0 and 1
+		wavetable_index = (uint16_t)(2047)*((float)phase/(float)TAU); //phase/tau returns value between 0 and 1
 
-		float cur_sine = (float)sin2048[wavetable_index]/255; //sine as a float value 0 to 1. sine_table stored as uint8_t instead of float as cheaper to store
+		float cur_sine = (float)tri2048[wavetable_index]/255; //sine as a float value 0 to 1. sine_table stored as uint8_t instead of float as cheaper to store
 
 		//pwm duty cycle is from 1-2048. pwm_buffer values go to the CRR of the timer, which must be <= the ARR, which in this case is 2048.
 
@@ -283,6 +319,19 @@ void HAL_TIM_PWM_PulseFinishedHalfCpltCallback(TIM_HandleTypeDef *htim3) {
 
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 {
+
+	//adds last 5 samples to circular buffer, allows averaging of noisy values
+	pot_buffer[pot_id] = ADC_buffer[0];
+	pot_id++;
+	if(pot_id>=5){
+		pot_id=0;
+	}
+
+	piezo_buffer[piezo_id] = ADC_buffer[1];
+	piezo_id++;
+	if(piezo_id>=5){
+		piezo_id=0;
+	}
 }
 
 
@@ -353,15 +402,16 @@ int main(void)
 	      //}
 
 
-	  //update_frequency();
-	  update_phase_change();
+	  audio_update();
 
 
-	  printf("%u \r\n", ADC_buffer[0]);
-	  printf("%u \r\n\n", ADC_buffer[1]);
-	  printf("\r\n");
+	  //printf("%u \r\n", ADC_buffer[0]);
+	  //printf("%u \r\n\n", ADC_buffer[1]);
+	 // printf("\r\n");
+	  //printf("ADC_BUFFER: %u\r\n", ADC_buffer[0]);
+	  //printf("%ld\r\n", frequency);
 
-	  HAL_Delay(100);
+	  HAL_Delay(10);
 
     /* USER CODE END WHILE */
 
@@ -529,7 +579,7 @@ static void MX_TIM2_Init(void)
 
   /* USER CODE END TIM2_Init 1 */
   htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 119;
+  htim2.Init.Prescaler = 7;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim2.Init.Period = 59999;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
